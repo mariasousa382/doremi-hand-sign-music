@@ -1,0 +1,5 @@
+hand_landmarker.task
+gesture_model.pkl
+samples.npz
+__pycache__/
+*.pyc
