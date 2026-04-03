@@ -44,29 +44,61 @@ CONFIDENCE_THRESHOLD = 0.55
 MIN_PLAY_INTERVAL = 0.3  # seconds between plays
 
 NOTE_FREQS = {
-    "Do_lo": 261.63,  # C4 (low, waist level)
-    "Re":    293.66,  # D4
-    "Mi":    329.63,  # E4
-    "Fa":    349.23,  # F4
-    "Sol":   392.00,  # G4
-    "La":    440.00,  # A4
-    "Ti":    493.88,  # B4
-    "Do_hi": 523.25,  # C5 (high, forehead level)
+    # Natural notes — right hand
+    "Do_lo":  261.63,  # C4
+    "Re_lo":  293.66,  # D4
+    "Mi_lo":  329.63,  # E4
+    "Fa_lo":  349.23,  # F4
+    "Sol_lo": 392.00,  # G4
+    "La_lo":  440.00,  # A4
+    "Ti_lo":  493.88,  # B4
+    "Do_hi":  523.25,  # C5
+    "Re_hi":  587.33,  # D5
+    "Mi_hi":  659.25,  # E5
+    "Fa_hi":  698.46,  # F5
+    "Sol_hi": 783.99,  # G5
+    "La_hi":  880.00,  # A5
+    "Ti_hi":  987.77,  # B5
+    # Semitones — left hand
+    "Do#_lo": 277.18,  # C#4
+    "Re#_lo": 311.13,  # D#4
+    "Fa#_lo": 369.99,  # F#4
+    "Sol#_lo":415.30,  # G#4
+    "La#_lo": 466.16,  # A#4
+    "Do#_hi": 554.37,  # C#5
+    "Re#_hi": 622.25,  # D#5
+    "Fa#_hi": 739.99,  # F#5
+    "Sol#_hi":830.61,  # G#5
+    "La#_hi": 932.33,  # A#5
 }
 
-# y threshold (normalized 0-1): wrist above this = high Do, below = low Do
+# y threshold (normalized 0-1): wrist above this = high octave
 DO_SPLIT_Y = 0.5
 
-# Colors per gesture (BGR)
+# Colors per gesture (BGR) — hi variants brighter, semitones warm orange/yellow
 NOTE_COLORS = {
-    "Do_lo": (60, 60, 220),
-    "Do_hi": (120, 60, 220),
-    "Re":  (60, 140, 220),
-    "Mi":  (60, 220, 180),
-    "Fa":  (60, 220, 60),
-    "Sol": (60, 180, 220),
-    "La":  (180, 60, 220),
-    "Ti":  (220, 60, 140),
+    "Do_lo":  (60,  60,  200), "Do_hi":  (100, 100, 255),
+    "Re_lo":  (60,  120, 200), "Re_hi":  (100, 180, 255),
+    "Mi_lo":  (60,  200, 160), "Mi_hi":  (100, 255, 210),
+    "Fa_lo":  (60,  200,  60), "Fa_hi":  (100, 255, 100),
+    "Sol_lo": (60,  160, 200), "Sol_hi": (100, 220, 255),
+    "La_lo":  (160,  60, 200), "La_hi":  (210, 100, 255),
+    "Ti_lo":   (200,  60, 120), "Ti_hi":   (255, 100, 180),
+    # Semitones — warm orange/amber
+    "Do#_lo":  (0,  140, 255), "Do#_hi":  (0,  180, 255),
+    "Re#_lo":  (0,  165, 255), "Re#_hi":  (0,  210, 255),
+    "Fa#_lo":  (0,  190, 220), "Fa#_hi":  (0,  230, 255),
+    "Sol#_lo": (0,  160, 200), "Sol#_hi": (0,  200, 240),
+    "La#_lo":  (0,  130, 180), "La#_hi":  (0,  170, 220),
+}
+
+# Right-hand base gesture → sharpened version (Mi and Ti have no semitone)
+SEMITONE_MAP = {
+    "Do":  "Do#",
+    "Re":  "Re#",
+    "Fa":  "Fa#",
+    "Sol": "Sol#",
+    "La":  "La#",
 }
 
 # MediaPipe landmark indices
@@ -145,6 +177,32 @@ def get_landmarks(result) -> np.ndarray | None:
         return None
     hand = result.hand_landmarks[0]
     return np.array([[lm.x, lm.y, lm.z] for lm in hand], dtype=np.float32)
+
+
+def get_both_hands(result) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Return (right_lm, left_lm) from the user's perspective.
+    After horizontal flip: MediaPipe 'Left' label = user's right hand."""
+    right_lm = left_lm = None
+    if not result.hand_landmarks:
+        return None, None
+    for i, hand in enumerate(result.hand_landmarks):
+        lm = np.array([[p.x, p.y, p.z] for p in hand], dtype=np.float32)
+        label = result.handedness[i][0].category_name
+        if label == "Left":   # after flip = user's right
+            right_lm = lm
+        else:                 # after flip = user's left
+            left_lm = lm
+    return right_lm, left_lm
+
+
+def left_hand_active(lm: np.ndarray) -> bool:
+    """True if any finger is raised on the left hand (semitone modifier)."""
+    return any([
+        finger_extended(lm, INDEX_TIP,  INDEX_MCP),
+        finger_extended(lm, MIDDLE_TIP, MIDDLE_MCP),
+        finger_extended(lm, RING_TIP,   RING_MCP),
+        finger_extended(lm, PINKY_TIP,  PINKY_MCP),
+    ])
 
 
 def draw_landmarks(frame: np.ndarray, lm: np.ndarray) -> None:
@@ -316,11 +374,11 @@ def classify_gesture(lm: np.ndarray) -> tuple[str | None, float]:
 
 
 def resolve_octave(gesture: str | None, lm: np.ndarray | None) -> str | None:
-    """Split 'Do' into 'Do_hi' or 'Do_lo' based on wrist height on screen."""
-    if gesture != "Do" or lm is None:
+    """Append _hi or _lo to any gesture based on wrist height on screen."""
+    if gesture is None or lm is None:
         return gesture
-    # lm[WRIST][1] is normalized y: 0=top, 1=bottom
-    return "Do_hi" if lm[WRIST][1] < DO_SPLIT_Y else "Do_lo"
+    suffix = "_hi" if lm[WRIST][1] < DO_SPLIT_Y else "_lo"
+    return gesture + suffix
 
 
 # ── ML helpers ───────────────────────────────────────────────────────────────
@@ -352,7 +410,7 @@ def make_landmarker():
     options = HandLandmarkerOptions(
         base_options=mp_tasks.BaseOptions(model_asset_path=MODEL_PATH),
         running_mode=RunningMode.VIDEO,
-        num_hands=1,
+        num_hands=2,
         min_hand_detection_confidence=0.7,
         min_hand_presence_confidence=0.5,
         min_tracking_confidence=0.5,
@@ -510,19 +568,27 @@ def main():
         timestamp_ms = int(time.time() * 1000)
         result = landmarker.detect_for_video(mp_image, timestamp_ms)
 
-        lm = get_landmarks(result)
-        if lm is None:
+        right_lm, left_lm = get_both_hands(result)
+
+        if right_lm is None:
             gesture, confidence = None, 0.0
         elif clf is not None:
-            gesture, confidence = ml_classify(clf, lm)
+            gesture, confidence = ml_classify(clf, right_lm)
         else:
-            gesture, confidence = classify_gesture(lm)
-        gesture = resolve_octave(gesture, lm)
+            gesture, confidence = classify_gesture(right_lm)
+
+        # Apply semitone modifier if left hand is raised
+        if gesture is not None and left_lm is not None and left_hand_active(left_lm):
+            gesture = SEMITONE_MAP.get(gesture, gesture)
+
+        gesture = resolve_octave(gesture, right_lm)
 
         gesture_history.append(gesture)
 
-        if lm is not None:
-            draw_landmarks(frame, lm)
+        if right_lm is not None:
+            draw_landmarks(frame, right_lm)
+        if left_lm is not None:
+            draw_landmarks(frame, left_lm)
 
         # Trigger note if gesture has been stable for HOLD_FRAMES
         if (
@@ -530,7 +596,7 @@ def main():
             and len(set(gesture_history)) == 1
             and gesture is not None
         ):
-            if gesture != last_played or time.time() - last_play_time > 2.0:
+            if gesture != last_played or time.time() - last_play_time > 1.0:
                 if time.time() - last_play_time > MIN_PLAY_INTERVAL:
                     play_note(gesture)
                     last_played = gesture
@@ -547,7 +613,8 @@ def main():
         cv2.putText(frame, f"FPS {fps:.0f}", (w - 90, 25),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1)
 
-        DISPLAY_NAMES = {"Do_lo": "Do ↓", "Do_hi": "Do ↑"}
+        DISPLAY_NAMES = {k: k.replace("_lo", " ↓").replace("_hi", " ↑")
+                         for k in NOTE_FREQS}
         if gesture:
             color = NOTE_COLORS.get(gesture, (255, 255, 255))
             label = DISPLAY_NAMES.get(gesture, gesture)
