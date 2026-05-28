@@ -19,6 +19,12 @@ The implementation supports:
 * Training-data collection pipeline
 * Live visual feedback
 
+## Curwen Solfege Hand Signs
+
+The system recognizes Curwen solfege hand signs in real time using MediaPipe hand tracking and gesture classification.
+
+<img width="554" height="242" alt="image" src="https://github.com/user-attachments/assets/8ddfa128-a7fa-4bd3-bda0-fc560a47a6f3" />
+
 ## Technologies Used
 
 * Python
@@ -58,6 +64,31 @@ Detected gestures trigger synthesized musical notes using additive waveform gene
 * Right hand controls natural notes
 * Left hand acts as a semitone modifier
 * Hand height determines octave
+
+## Gesture Examples
+
+### Natural Note Detection
+
+A closed fist with the right hand is recognized as **Do**.
+
+<img width="1406" height="778" alt="Screenshot 2026-05-28 at 10 36 56" src="https://github.com/user-attachments/assets/629600b7-14df-4666-9235-6e7ec47fcbc2" />
+
+---
+
+### Semitone Modifier
+
+When the left hand raises one finger, the system applies a semitone modifier, turning **Do** into **Do#**.
+
+<img width="1405" height="774" alt="Screenshot 2026-05-28 at 10 36 43" src="https://github.com/user-attachments/assets/bcc14698-5e16-44db-9431-385e3dae0ac9" />
+
+---
+
+### Octave Detection
+
+The vertical position of the main hand controls octave shifts.  
+When the hand moves to the upper half of the screen, the note is played one octave higher.
+
+<img width="821" height="450" alt="Screenshot 2026-05-28 at 10 37 56" src="https://github.com/user-attachments/assets/b94139e3-1ea7-482e-9ff0-1fc309ba88ee" />
 
 ## Supported Notes
 
